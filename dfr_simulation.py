@@ -16,6 +16,7 @@ import math
 import sys
 import numpy as np
 import sgm_generate as sgm
+from collections import deque
 
 
 def dfr_simulation(num_frames, loss_model, loss_probability, video_trace, fec,
@@ -24,9 +25,14 @@ def dfr_simulation(num_frames, loss_model, loss_probability, video_trace, fec,
     num_frames_decoded = 0
     num_frames_received = 0
 
+    # consider the I frame and P frame
+    B_deque = deque(maxlen=2)
+    I_deque = deque(maxlen=1)
+
     # main loop
     with open(video_trace, "r") as f:
         while (num_frames_received < num_frames):
+
             line = f.readline()
             if line[0] == '#':
                 continue  # ignore comments
@@ -38,8 +44,11 @@ def dfr_simulation(num_frames, loss_model, loss_probability, video_trace, fec,
             f_size = int(f_info[3])  # str -> int
             num_pkts = math.ceil(f_size / (188 * 8))
             num_frames_received += 1
+            #
+            # if "I" in f_type:
+            #     I_deque.append(0)
 
-            # symbol loss sequences
+                # symbol loss sequences
             if loss_model == 'uniform':
                 if trace is True:
                     print("{0:d}: generating symbol loss sequences based on uniform loss model...".format(
@@ -56,7 +65,7 @@ def dfr_simulation(num_frames, loss_model, loss_probability, video_trace, fec,
 
                 # TODO: Implement.
                 pl = loss_probability
-                p = 0.03
+                p = 0.01
                 q = p * (1 - pl) / pl
                 tr = np.array([[1 - p, q], [p, 1 - q]])
                 symbols = []
@@ -70,6 +79,7 @@ def dfr_simulation(num_frames, loss_model, loss_probability, video_trace, fec,
 
             # packet loss sequences
             frame_loss = False
+            packet_valid = []
             for i in range(num_pkts):
 
                 # TODO: Extract the loss sequences corresponding to the current
@@ -82,19 +92,38 @@ def dfr_simulation(num_frames, loss_model, loss_probability, video_trace, fec,
                         print("{0:d}: applying FEC to symbol loss sequences...".format(num_frames_received))
 
                     # TODO: Implement
-                    count = 0
-
-                    for j, symbol in enumerate(packet):
-                        if count >= t:
-                            break
-                        if symbol == 1:
-                            packet[j] = 0
-                            count += 1
-                    symbols[i, :] = packet
+                    if sum(packet) > t:
+                        packet_valid.append(1)
+                    else:
+                        packet_valid.append(0)
 
             # TODO: set frame_loss to True if there is any symbol loss
-            if 1 in symbols:
-                frame_loss = True
+            if fec:
+                if sum(packet_valid) > 0:
+                    frame_loss = True
+            else:
+                if 1 in symbols:
+                    frame_loss = True
+
+            if 'I' in f_type:
+                if frame_loss:
+                    I_deque.append(1)
+                else:
+                    I_deque.append(0)
+                    B_deque.append(0)
+
+            if 'P' in f_type or 'I' in f_type:
+                # if p or I frame loss, then B_stack append 1
+                if frame_loss:
+                    B_deque.append(1)
+
+            # judge I frame
+            if 1 in I_deque:
+                continue
+
+            # judge P and I frame
+            if 1 in B_deque:
+                continue
 
             # frame decodability
             if frame_loss is False:
@@ -125,8 +154,8 @@ if __name__ == '__main__':
     parser.add_argument(
         "-P",
         "--loss_probability",
-        help="overall loss probability; default is 0.1",
-        default=0.1,
+        help="overall loss probability; default is 0.01",
+        default=0.01,
         type=float)
     parser.add_argument(
         "-V",
