@@ -28,6 +28,7 @@ def dfr_simulation(num_frames, loss_model, loss_probability, video_trace, fec,
     # consider the I frame and P frame
     B_deque = deque(maxlen=2)
     I_deque = deque(maxlen=1)
+    P_deque = deque(maxlen=1)
 
     # main loop
     with open(video_trace, "r") as f:
@@ -44,20 +45,17 @@ def dfr_simulation(num_frames, loss_model, loss_probability, video_trace, fec,
             f_size = int(f_info[3])  # str -> int
             num_pkts = math.ceil(f_size / (188 * 8))
             num_frames_received += 1
-            #
-            # if "I" in f_type:
-            #     I_deque.append(0)
 
-                # symbol loss sequences
+            # symbol loss sequences
             if loss_model == 'uniform':
                 if trace is True:
                     print("{0:d}: generating symbol loss sequences based on uniform loss model...".format(
                         num_frames_received))
 
                 # TODO: Implement.
-                randomvalues = np.random.uniform(0, 1, (num_pkts, 188))
+                random_values = np.random.uniform(0, 1, (num_pkts, 188))
 
-                symbols = np.int32(randomvalues <= loss_probability)
+                symbols = np.int32(random_values <= loss_probability)
 
             elif loss_model == 'sgm':
                 if trace is True:
@@ -65,7 +63,7 @@ def dfr_simulation(num_frames, loss_model, loss_probability, video_trace, fec,
 
                 # TODO: Implement.
                 pl = loss_probability
-                p = 0.01
+                p = 1 / 10000
                 q = p * (1 - pl) / pl
                 tr = np.array([[1 - p, q], [p, 1 - q]])
                 symbols = []
@@ -105,24 +103,35 @@ def dfr_simulation(num_frames, loss_model, loss_probability, video_trace, fec,
                 if 1 in symbols:
                     frame_loss = True
 
-            if 'I' in f_type:
+            if 'I' == f_type:
                 if frame_loss:
                     I_deque.append(1)
+                    P_deque.append(1)
                 else:
                     I_deque.append(0)
-                    B_deque.append(0)
+                    P_deque.append(0)
 
-            if 'P' in f_type or 'I' in f_type:
+            if 'P' == f_type or 'I' == f_type:
                 # if p or I frame loss, then B_stack append 1
                 if frame_loss:
                     B_deque.append(1)
+                else:
+                    B_deque.append(0)
 
-            # judge I frame
+            if "P" == f_type:
+                if frame_loss:
+                    P_deque.append(1)
+
+            # judge all frame base I frame
             if 1 in I_deque:
                 continue
 
-            # judge P and I frame
-            if 1 in B_deque:
+            # judge B frame base I and P frame
+            if f_type == "B" and 1 in B_deque:
+                continue
+
+            # judge P frame base previous I and P frame state
+            if f_type == 'P' and 1 in P_deque:
                 continue
 
             # frame decodability
@@ -142,8 +151,8 @@ if __name__ == '__main__':
     parser.add_argument(
         "-N",
         "--num_frames",
-        help="number of frames to simulate; default is 1000",
-        default=1000,
+        help="number of frames to simulate; default is 10000",
+        default=10000,
         type=int)
     parser.add_argument(
         "-M",
@@ -160,8 +169,8 @@ if __name__ == '__main__':
     parser.add_argument(
         "-V",
         "--video_trace",
-        help="video trace file; default is 'terminator2_verbose'",
-        default="terminator2_verbose",
+        help="video trace file; default is 'starWars4_verbose'",
+        default="starWars4_verbose",
         type=str)
     # forward error correction (FEC); default is False (i.e., not using FEC)
     parser.add_argument('--fec', dest='fec', action='store_true')
